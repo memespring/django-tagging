@@ -449,6 +449,34 @@ class TaggedItemManager(models.Manager):
         else:
             return []
 
+    def get_no_tags(self, queryset_or_model):
+        """
+        Create a ``QuerySet`` containing instances of the specified
+        model that contain no tags
+        """
+        queryset, model = get_queryset_and_model(queryset_or_model)
+        model_table = qn(model._meta.db_table)
+        # This query selects the ids of all objects which have no tags
+        query = """
+        SELECT %(model_pk)s
+        FROM %(model)s
+            left outer join %(tagged_item)s on %(model_pk)s = %(tagged_item)s.object_id and %(tagged_item)s.content_type_id = %(content_type_id)s
+        WHERE  %(tagged_item)s.tag_id is null
+        GROUP BY %(model_pk)s""" % {
+            'model_pk': '%s.%s' % (model_table, qn(model._meta.pk.column)),
+            'model': model_table,
+            'tagged_item': qn(self.model._meta.db_table),
+            'content_type_id': ContentType.objects.get_for_model(model).pk,
+        }
+
+        cursor = connection.cursor()
+        cursor.execute(query)
+        object_ids = [row[0] for row in cursor.fetchall()]
+        if len(object_ids) > 0:
+            return queryset.filter(pk__in=object_ids)
+        else:
+            return model._default_manager.none()
+            
 ##########
 # Models #
 ##########
